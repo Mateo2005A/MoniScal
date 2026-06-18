@@ -10,7 +10,7 @@ DB_CONFIG = {
     "host": "localhost",
     "user": "root",
     "password": "",
-    "database": "cloud_optimization"
+    "database": "moniscal_db"
 }
 
 def iniciar_base_datos():
@@ -65,7 +65,7 @@ iniciar_base_datos()
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="MoniScal", layout="wide")
 
-st.title("MoniScal: Sistema de Auto-escalado basado en Cálculo Diferencial")
+st.title("MoniScal: Simulación de Auto-escalado basado en Cálculo Diferencial")
 st.write(
     "Este prototipo simula el tráfico web y aplica la **primera derivada** "
     "para predecir la saturación de servidores y levantar la infraestructura de forma proactiva."
@@ -80,7 +80,7 @@ tipo_trafico = st.sidebar.selectbox(
 )
 
 delta_t = st.sidebar.slider("Intervalo de tiempo (Δt en segundos)", 1, 5, 2)
-umbral_critico = st.sidebar.slider("Umbral Crítico de la Derivada (U_crítico)", 10, 100, 40)
+umbral_critico = st.sidebar.slider("Umbral Crítico de la Derivada", 10, 100, 40)
 servidores_iniciales = st.sidebar.slider("Servidores Iniciales", 1, 5, 1)
 
 # --- BOTÓN DE INICIO ---
@@ -88,7 +88,7 @@ iniciar = st.sidebar.button("Iniciar Simulación")
 
 # --- LÓGICA DE LA SIMULACIÓN ---
 if iniciar:
-    st.subheader("Monitoreo de Infraestructura en Tiempo Real")
+    st.subheader("Monitoreo en Tiempo Real")
     
     metricas_col = st.columns(3)
     kpi_trafico = metricas_col[0].empty()
@@ -129,7 +129,10 @@ if iniciar:
             st.toast(f"Tráfico bajando ({derivada_actual:.1f}). Apagando servidor.")
             # Guardado automático en MySQL ante desescalado descendente
             guardar_evento(trafico_actual, derivada_actual, servidores_activos, "SCALE_IN (APAGAR)")
-            
+
+        # Guardado de datos en MySQL como parte normal del proceso 
+        guardar_evento(trafico_actual, derivada_actual, servidores_activos, "PROCESO_SIMULACION")
+
         # Guardar datos en el historial
         historial_tiempo.append(t)
         historial_trafico.append(trafico_actual)
@@ -155,10 +158,10 @@ if iniciar:
         # Simular el paso del tiempo real
         time.sleep(0.7)
         
-    st.success("Simulación finalizada con éxito. Analiza cómo reaccionó la derivada ante los cambios de pendiente.")
+    st.success("Simulación finalizada con éxito.")
     
-    # --- VISUALIZADOR DEL HISTORIAL DESDE MYSQL AL FINALIZAR ---
-    st.write("### 📋 Historial de Decisiones Persistido en MySQL")
+    # --- TABLA DE LOGS DESDE MYSQL AL FINALIZAR ---
+    st.write("### Tabla de Logs Registrados en MySQL")
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         df_logs = pd.read_sql("SELECT * FROM logs_escalado ORDER BY id DESC LIMIT 10", conn)
@@ -167,4 +170,4 @@ if iniciar:
     except:
         pass
 else:
-    st.info("Configura los parámetros en el panel izquierdo y haz clic en 'Iniciar Simulación' para ver el prototipo en acción.")
+    st.info("Configura los parámetros en el panel izquierdo y haz clic en 'Iniciar Simulación' para visualizar el proceso.")
