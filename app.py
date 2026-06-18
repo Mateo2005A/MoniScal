@@ -2,6 +2,65 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import time
+import mysql.connector
+from datetime import datetime
+
+# --- CONFIGURACIÓN DE CONEXIÓN A MYSQL ---
+DB_CONFIG = {
+    "host": "localhost",
+    "user": "root",
+    "password": "",
+    "database": "cloud_optimization"
+}
+
+def iniciar_base_datos():
+    try:
+        # Conexión inicial para asegurar que la BD exista
+        conn = mysql.connector.connect(host=DB_CONFIG["host"], user=DB_CONFIG["user"], password=DB_CONFIG["password"])
+        cursor = conn.cursor()
+        cursor.execute(f"CREATE DATABASE IF NOT EXISTS {DB_CONFIG['database']}")
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        # Conexión a la BD para asegurar que la tabla exista
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS logs_escalado (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                fecha_hora DATETIME,
+                trafico_req_s INT,
+                derivada_req_s2 FLOAT,
+                servidores_activos INT,
+                accion_tomada VARCHAR(50)
+            )
+        """)
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except mysql.connector.Error as err:
+        st.error(f"Error al conectar con MySQL: {err}")
+
+def guardar_evento(trafico, derivada, servidores, accion):
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        query = """
+            INSERT INTO logs_escalado (fecha_hora, trafico_req_s, derivada_req_s2, servidores_activos, accion_tomada)
+            VALUES (%s, %s, %s, %s, %s)
+        """
+        valores = (datetime.now(), trafico, float(derivada), servidores, accion)
+        cursor.execute(query, valores)
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except mysql.connector.Error as err:
+        print(f"Error al insertar en MySQL: {err}")
+
+# Inicializar la base de datos de manera automática al cargar el script
+iniciar_base_datos()
+
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="MoniScal", layout="wide")
@@ -9,7 +68,7 @@ st.set_page_config(page_title="MoniScal", layout="wide")
 st.title("MoniScal: Sistema de Auto-escalado basado en Cálculo Diferencial")
 st.write(
     "Este prototipo simula el tráfico web y aplica la **primera derivada** "
-    "para predecir la saturación de servidores y escalar la infraestructura de forma proactiva."
+    "para predecir la saturación de servidores y levantar la infraestructura de forma proactiva."
 )
 
 st.sidebar.header("Parámetros del Sistema")
@@ -45,6 +104,9 @@ if iniciar:
     historial_derivada = []
     historial_servidores = []
     
+    # Registrar el arranque de la simulación en la BD
+    guardar_evento(0, 0.0, servidores_activos, "INICIO_SIMULACION")
+    
     for t in range(1, 31):
         if tipo_trafico == "Tráfico Normal (Sinusoidal)":
             trafico_actual = int(50 * np.sin(0.5 * t) + 100)
@@ -60,9 +122,13 @@ if iniciar:
         if derivada_actual > umbral_critico:
             servidores_activos += 1
             st.toast(f"¡Alerta! Derivada alta ({derivada_actual:.1f}). Encendiendo servidor.")
+            # Guardado automático en MySQL ante escalado ascendente
+            guardar_evento(trafico_actual, derivada_actual, servidores_activos, "SCALE_OUT (ENCENDER)")
         elif derivada_actual < -umbral_critico and servidores_activos > servidores_iniciales:
             servidores_activos -= 1
             st.toast(f"Tráfico bajando ({derivada_actual:.1f}). Apagando servidor.")
+            # Guardado automático en MySQL ante desescalado descendente
+            guardar_evento(trafico_actual, derivada_actual, servidores_activos, "SCALE_IN (APAGAR)")
             
         # Guardar datos en el historial
         historial_tiempo.append(t)
@@ -90,5 +156,15 @@ if iniciar:
         time.sleep(0.7)
         
     st.success("Simulación finalizada con éxito. Analiza cómo reaccionó la derivada ante los cambios de pendiente.")
+    
+    # --- VISUALIZADOR DEL HISTORIAL DESDE MYSQL AL FINALIZAR ---
+    st.write("### 📋 Historial de Decisiones Persistido en MySQL")
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        df_logs = pd.read_sql("SELECT * FROM logs_escalado ORDER BY id DESC LIMIT 10", conn)
+        st.dataframe(df_logs, use_container_width=True)
+        conn.close()
+    except:
+        pass
 else:
     st.info("Configura los parámetros en el panel izquierdo y haz clic en 'Iniciar Simulación' para ver el prototipo en acción.")
